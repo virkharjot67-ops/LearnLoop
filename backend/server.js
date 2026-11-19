@@ -221,6 +221,7 @@ app.get('/api/leaderboard', (req, res) => {
 });
 
 // Start Express server
-app.listen(PORT, () => {
-  console.log(`🚀 LearnLoop Backend API running on http://localhost:${PORT}`);
+const HOST = '0.0.0.0';
+app.listen(PORT, HOST, () => {
+  console.log(`🚀 LearnLoop Backend API running on port ${PORT}`);
 });
