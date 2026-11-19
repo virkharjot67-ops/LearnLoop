@@ -1,0 +1,32 @@
+{
+  "name": "LearnLoop Codespace",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-20-bullseye",
+  "forwardPorts": [5173, 5000],
+  "portsAttributes": {
+    "5173": {
+      "label": "LearnLoop Frontend (Vite)",
+      "onAutoForward": "openPreview"
+    },
+    "5000": {
+      "label": "LearnLoop Backend API",
+      "onAutoForward": "silent"
+    }
+  },
+  "postCreateCommand": "cd frontend && npm install",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+      },
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss",
+        "dsznajder.es7-react-js-snippets"
+      ]
+    }
+  }
+}
+
