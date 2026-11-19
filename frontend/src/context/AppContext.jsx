@@ -7,6 +7,14 @@ import {
   rewardsStoreData,
   leaderboardData
 } from '../data/mockData';
+import {
+  getBootstrapData,
+  apiEnrollCourse,
+  apiToggleLesson,
+  apiToggleBookmark,
+  apiSubmitTest,
+  apiRedeemReward
+} from '../services/api';
 
 const AppContext = createContext(null);
 
@@ -19,9 +27,10 @@ export const AppProvider = ({ children }) => {
   const [user, setUser] = useState(initialUserData);
   const [courses, setCourses] = useState(coursesData);
   const [studyMaterials, setStudyMaterials] = useState(studyMaterialsData);
-  const [tests] = useState(incentiveTestsData);
-  const [rewards] = useState(rewardsStoreData);
-  const [leaderboard] = useState(leaderboardData);
+  const [tests, setTests] = useState(incentiveTestsData);
+  const [rewards, setRewards] = useState(rewardsStoreData);
+  const [leaderboard, setLeaderboard] = useState(leaderboardData);
+  const [backendConnected, setBackendConnected] = useState(false);
 
   const [completedTests, setCompletedTests] = useState([
     {
@@ -51,6 +60,33 @@ export const AppProvider = ({ children }) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
+  // Sync with live backend on startup
+  useEffect(() => {
+    let mounted = true;
+    getBootstrapData()
+      .then(data => {
+        if (!mounted) return;
+        if (data.user) setUser(data.user);
+        if (data.courses) setCourses(data.courses);
+        if (data.studyMaterials) setStudyMaterials(data.studyMaterials);
+        if (data.tests) setTests(data.tests);
+        if (data.rewards) setRewards(data.rewards);
+        if (data.leaderboard) setLeaderboard(data.leaderboard);
+        if (data.completedTests) setCompletedTests(data.completedTests);
+        if (data.redeemedRewards) setRedeemedRewards(data.redeemedRewards);
+        setBackendConnected(true);
+        addToast('Connected to Backend API', 'Live data synchronized from http://localhost:5000', 'success');
+      })
+      .catch(err => {
+        console.warn('Backend API not responding, using offline fallback:', err);
+        setBackendConnected(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   // Navigation router
   const navigateTo = (page, param = null) => {
     if (page === 'course-detail' && param) {
@@ -64,133 +100,177 @@ export const AppProvider = ({ children }) => {
   };
 
   // Enroll in a course
-  const enrollCourse = (courseId) => {
-    setCourses(prev => prev.map(c => {
-      if (c.id === courseId) {
-        return { ...c, enrolled: true, progress: c.progress || 5 };
-      }
-      return c;
-    }));
+  const enrollCourse = async (courseId) => {
+    try {
+      const updatedCourse = await apiEnrollCourse(courseId);
+      setCourses(prev => prev.map(c => c.id === courseId ? updatedCourse : c));
+    } catch (err) {
+      console.warn('API error during enrollCourse, applying fallback:', err);
+      setCourses(prev => prev.map(c => {
+        if (c.id === courseId) {
+          return { ...c, enrolled: true, progress: c.progress || 5 };
+        }
+        return c;
+      }));
+    }
     addToast('Course Enrolled!', 'Welcome to the course. Happy learning!', 'success');
   };
 
   // Mark lesson completed
-  const toggleLessonComplete = (courseId, lessonId) => {
-    setCourses(prevCourses => {
-      return prevCourses.map(course => {
-        if (course.id !== courseId) return course;
+  const toggleLessonComplete = async (courseId, lessonId) => {
+    try {
+      const res = await apiToggleLesson(courseId, lessonId);
+      setCourses(prevCourses => prevCourses.map(c => c.id === courseId ? res.course : c));
+      setUser(res.user);
+      addToast('Lesson Progress Updated', '+25 XP gained for lesson completion!', 'success');
+    } catch (err) {
+      console.warn('API error during toggleLesson, applying fallback:', err);
+      setCourses(prevCourses => {
+        return prevCourses.map(course => {
+          if (course.id !== courseId) return course;
 
-        let totalLessons = 0;
-        let completedLessons = 0;
+          let totalLessons = 0;
+          let completedLessons = 0;
 
-        const updatedModules = course.modules.map(module => {
-          const updatedLessons = module.lessons.map(lesson => {
-            totalLessons++;
-            if (lesson.id === lessonId) {
-              const newStatus = !lesson.completed;
-              if (newStatus) completedLessons++;
-              return { ...lesson, completed: newStatus };
-            }
-            if (lesson.completed) completedLessons++;
-            return lesson;
+          const updatedModules = course.modules.map(module => {
+            const updatedLessons = module.lessons.map(lesson => {
+              totalLessons++;
+              if (lesson.id === lessonId) {
+                const newStatus = !lesson.completed;
+                if (newStatus) completedLessons++;
+                return { ...lesson, completed: newStatus };
+              }
+              if (lesson.completed) completedLessons++;
+              return lesson;
+            });
+            return { ...module, lessons: updatedLessons };
           });
-          return { ...module, lessons: updatedLessons };
+
+          const newProgress = Math.round((completedLessons / (totalLessons || 1)) * 100);
+
+          setUser(prevUser => ({
+            ...prevUser,
+            xp: prevUser.xp + 25,
+            hoursLearned: parseFloat((prevUser.hoursLearned + 0.4).toFixed(1))
+          }));
+
+          addToast('Lesson Progress Updated', '+25 XP gained for lesson completion!', 'success');
+
+          return {
+            ...course,
+            progress: newProgress,
+            modules: updatedModules
+          };
         });
-
-        const newProgress = Math.round((completedLessons / (totalLessons || 1)) * 100);
-
-        // Grant small XP for completing a lesson
-        setUser(prevUser => ({
-          ...prevUser,
-          xp: prevUser.xp + 25,
-          hoursLearned: parseFloat((prevUser.hoursLearned + 0.4).toFixed(1))
-        }));
-
-        addToast('Lesson Progress Updated', '+25 XP gained for lesson completion!', 'success');
-
-        return {
-          ...course,
-          progress: newProgress,
-          modules: updatedModules
-        };
       });
-    });
+    }
   };
 
   // Bookmark toggle
-  const toggleBookmark = (materialId) => {
-    setStudyMaterials(prev => prev.map(item => {
-      if (item.id === materialId) {
-        const nextState = !item.isBookmarked;
-        addToast(
-          nextState ? 'Material Bookmarked' : 'Bookmark Removed',
-          nextState ? `Saved "${item.title}" to quick access.` : 'Removed from saved items.',
-          'info'
-        );
-        return { ...item, isBookmarked: nextState };
-      }
-      return item;
-    }));
+  const toggleBookmark = async (materialId) => {
+    try {
+      const updated = await apiToggleBookmark(materialId);
+      setStudyMaterials(prev => prev.map(item => item.id === materialId ? updated : item));
+      addToast(
+        updated.isBookmarked ? 'Material Bookmarked' : 'Bookmark Removed',
+        updated.isBookmarked ? `Saved "${updated.title}" to quick access.` : 'Removed from saved items.',
+        'info'
+      );
+    } catch (err) {
+      console.warn('API error during toggleBookmark, applying fallback:', err);
+      setStudyMaterials(prev => prev.map(item => {
+        if (item.id === materialId) {
+          const nextState = !item.isBookmarked;
+          addToast(
+            nextState ? 'Material Bookmarked' : 'Bookmark Removed',
+            nextState ? `Saved "${item.title}" to quick access.` : 'Removed from saved items.',
+            'info'
+          );
+          return { ...item, isBookmarked: nextState };
+        }
+        return item;
+      }));
+    }
   };
 
   // Submit test results and grant rewards
-  const submitTest = (testId, answers, timeSpentSeconds) => {
-    const test = tests.find(t => t.id === testId);
-    if (!test) return null;
+  const submitTest = async (testId, answers, timeSpentSeconds) => {
+    try {
+      const { result, user: updatedUser } = await apiSubmitTest(testId, answers, timeSpentSeconds);
+      setUser(updatedUser);
+      setCompletedTests(prev => [result, ...prev]);
 
-    let correctCount = 0;
-    test.questions.forEach((q, idx) => {
-      if (answers[idx] === q.correctIndex) {
-        correctCount++;
+      if (result.passed) {
+        addToast(
+          'Incentive Test Passed! 🎉',
+          `Spectacular job! You earned +${result.earnedCoins} LoopCoins and +${result.earnedXP} XP.`,
+          'success'
+        );
+      } else {
+        addToast(
+          'Test Finished',
+          `You scored ${result.percentage}%. Review the explanations and retry for full reward. (+${result.earnedCoins} consolation coins)`,
+          'warning'
+        );
       }
-    });
+      return result;
+    } catch (err) {
+      console.warn('API error during submitTest, applying fallback:', err);
+      const test = tests.find(t => t.id === testId);
+      if (!test) return null;
 
-    const percentage = Math.round((correctCount / test.questions.length) * 100);
-    const passed = percentage >= test.passingScorePercentage;
-    const earnedCoins = passed ? test.rewardCoins : Math.round(test.rewardCoins * 0.2);
-    const earnedXP = passed ? test.rewardXP : Math.round(test.rewardXP * 0.25);
+      let correctCount = 0;
+      test.questions.forEach((q, idx) => {
+        if (answers[idx] === q.correctIndex) {
+          correctCount++;
+        }
+      });
 
-    // Update user stats
-    setUser(prev => ({
-      ...prev,
-      xp: prev.xp + earnedXP,
-      loopCoins: prev.loopCoins + earnedCoins,
-      completedTestsCount: prev.completedTestsCount + 1
-    }));
+      const percentage = Math.round((correctCount / test.questions.length) * 100);
+      const passed = percentage >= test.passingScorePercentage;
+      const earnedCoins = passed ? test.rewardCoins : Math.round(test.rewardCoins * 0.2);
+      const earnedXP = passed ? test.rewardXP : Math.round(test.rewardXP * 0.25);
 
-    const resultRecord = {
-      testId,
-      score: correctCount,
-      total: test.questions.length,
-      percentage,
-      earnedCoins,
-      earnedXP,
-      passed,
-      timeSpentSeconds,
-      date: 'Just now'
-    };
+      setUser(prev => ({
+        ...prev,
+        xp: prev.xp + earnedXP,
+        loopCoins: prev.loopCoins + earnedCoins,
+        completedTestsCount: (prev.completedTestsCount || 0) + 1
+      }));
 
-    setCompletedTests(prev => [resultRecord, ...prev]);
+      const resultRecord = {
+        testId,
+        score: correctCount,
+        total: test.questions.length,
+        percentage,
+        earnedCoins,
+        earnedXP,
+        passed,
+        timeSpentSeconds,
+        date: 'Just now'
+      };
 
-    if (passed) {
-      addToast(
-        'Incentive Test Passed! 🎉',
-        `Spectacular job! You earned +${earnedCoins} LoopCoins and +${earnedXP} XP.`,
-        'success'
-      );
-    } else {
-      addToast(
-        'Test Finished',
-        `You scored ${percentage}%. Review the explanations and retry for full reward. (+${earnedCoins} consolation coins)`,
-        'warning'
-      );
+      setCompletedTests(prev => [resultRecord, ...prev]);
+
+      if (passed) {
+        addToast(
+          'Incentive Test Passed! 🎉',
+          `Spectacular job! You earned +${earnedCoins} LoopCoins and +${earnedXP} XP.`,
+          'success'
+        );
+      } else {
+        addToast(
+          'Test Finished',
+          `You scored ${percentage}%. Review the explanations and retry for full reward. (+${earnedCoins} consolation coins)`,
+          'warning'
+        );
+      }
+      return resultRecord;
     }
-
-    return resultRecord;
   };
 
   // Redeem Reward
-  const redeemReward = (rewardId) => {
+  const redeemReward = async (rewardId) => {
     const item = rewards.find(r => r.id === rewardId);
     if (!item) return;
 
@@ -199,13 +279,20 @@ export const AppProvider = ({ children }) => {
       return;
     }
 
-    setUser(prev => ({
-      ...prev,
-      loopCoins: prev.loopCoins - item.costCoins
-    }));
-
-    setRedeemedRewards(prev => [...prev, { ...item, redeemedAt: new Date().toLocaleDateString() }]);
-    addToast('Reward Unlocked! 🎁', `Successfully redeemed: ${item.title}`, 'success');
+    try {
+      const { redeemedReward: record, user: updatedUser } = await apiRedeemReward(rewardId);
+      setUser(updatedUser);
+      setRedeemedRewards(prev => [...prev, record]);
+      addToast('Reward Unlocked! 🎁', `Successfully redeemed: ${record.title}`, 'success');
+    } catch (err) {
+      console.warn('API error during redeemReward, applying fallback:', err);
+      setUser(prev => ({
+        ...prev,
+        loopCoins: prev.loopCoins - item.costCoins
+      }));
+      setRedeemedRewards(prev => [...prev, { ...item, redeemedAt: new Date().toLocaleDateString() }]);
+      addToast('Reward Unlocked! 🎁', `Successfully redeemed: ${item.title}`, 'success');
+    }
   };
 
   return (
@@ -234,7 +321,8 @@ export const AppProvider = ({ children }) => {
         leaderboard,
         notifications,
         removeToast,
-        addToast
+        addToast,
+        backendConnected
       }}
     >
       {children}
@@ -249,4 +337,3 @@ export const useApp = () => {
   }
   return context;
 };
-

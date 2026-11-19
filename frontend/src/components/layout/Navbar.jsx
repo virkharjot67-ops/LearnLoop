@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 
 export const Navbar = ({ mobileMenuOpen, setMobileMenuOpen }) => {
-  const { currentPage, navigateTo, user } = useApp();
+  const { currentPage, navigateTo, user, backendConnected } = useApp();
 
   const navItems = [
     { id: 'home', label: 'Dashboard', icon: Sparkles },
@@ -85,6 +85,18 @@ export const Navbar = ({ mobileMenuOpen, setMobileMenuOpen }) => {
 
         {/* Right: User Stats & Gamified Badges */}
         <div className="flex items-center gap-3">
+          {/* API Live Status Pill */}
+          <div 
+            className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all ${
+              backendConnected 
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' 
+                : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+            }`}
+            title={backendConnected ? 'Backend REST API connected (http://localhost:5000)' : 'Backend API offline (using local cache)'}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${backendConnected ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
+            <span>{backendConnected ? 'API Live' : 'API Offline'}</span>
+          </div>
           {/* Streak Indicator */}
           <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs font-semibold text-amber-400" title="Daily Learning Streak">
             <Flame className="w-4 h-4 text-amber-400 fill-amber-400 animate-bounce" />
