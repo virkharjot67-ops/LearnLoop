@@ -45,6 +45,20 @@ app.use((req, res, next) => {
   next();
 });
 
+// Root welcome endpoint
+app.get('/', (req, res) => {
+  res.json({
+    message: '🚀 LearnLoop Full-Stack API Engine is live and healthy!',
+    version: '1.0.0',
+    endpoints: {
+      health: '/api/health',
+      bootstrap: '/api/bootstrap',
+      courses: '/api/courses',
+      userProfile: '/api/user/profile'
+    }
+  });
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({
